@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	stdlog "log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,12 +14,14 @@ import (
 	iolog "github.com/github/github-mcp-server/pkg/log"
 	"github.com/github/github-mcp-server/pkg/translations"
 	gogithub "github.com/google/go-github/v69/github"
+	ghv4 "github.com/shurcooL/githubv4"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
 
 var version = "version"
 var commit = "commit"
@@ -112,6 +115,20 @@ func initLogger(outPath string) (*log.Logger, error) {
 	return logger, nil
 }
 
+// authTransport injects the Authorization header for GitHub GraphQL requests
+// (minimal implementation for GraphQL client)
+type authTransport struct {
+	Token string
+	Base  http.RoundTripper
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+t.Token)
+	}
+	return t.Base.RoundTrip(req)
+}
+
 type runConfig struct {
 	readOnly           bool
 	logger             *log.Logger
@@ -153,6 +170,16 @@ func runStdioServer(cfg runConfig) error {
 		return ghClient, nil // closing over client
 	}
 
+	getGraphQLClient := func(_ context.Context) (*ghv4.Client, error) {
+		httpClient := &http.Client{
+			Transport: &authTransport{
+				Token: token,
+				Base:  http.DefaultTransport,
+			},
+		}
+		return ghv4.NewClient(httpClient), nil
+	}
+
 	hooks := &server.Hooks{
 		OnBeforeInitialize: []server.OnBeforeInitializeFunc{beforeInit},
 	}
@@ -172,7 +199,7 @@ func runStdioServer(cfg runConfig) error {
 	}
 
 	// Create default toolsets
-	toolsets, err := github.InitToolsets(enabled, cfg.readOnly, getClient, t)
+	toolsets, err := github.InitToolsets(enabled, cfg.readOnly, getClient, getGraphQLClient, t)
 	context := github.InitContextToolset(getClient, t)
 
 	if err != nil {

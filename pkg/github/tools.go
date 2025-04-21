@@ -1,6 +1,7 @@
 package github
 
 import (
+	ghv4 "github.com/shurcooL/githubv4"
 	"context"
 
 	"github.com/github/github-mcp-server/pkg/toolsets"
@@ -9,11 +10,14 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// GetClientFn returns a GitHub REST API client.
 type GetClientFn func(context.Context) (*github.Client, error)
+// GetGraphQLClientFn returns a GitHub GraphQL API (Projects V2) client.
+type GetGraphQLClientFn func(context.Context) (*ghv4.Client, error)
 
 var DefaultTools = []string{"all"}
 
-func InitToolsets(passedToolsets []string, readOnly bool, getClient GetClientFn, t translations.TranslationHelperFunc) (*toolsets.ToolsetGroup, error) {
+func InitToolsets(passedToolsets []string, readOnly bool, getClient GetClientFn, getGraphQLClient GetGraphQLClientFn, t translations.TranslationHelperFunc) (*toolsets.ToolsetGroup, error) {
 	// Create a new toolset group
 	tsg := toolsets.NewToolsetGroup(readOnly)
 
@@ -78,6 +82,18 @@ func InitToolsets(passedToolsets []string, readOnly bool, getClient GetClientFn,
 			toolsets.NewServerTool(GetSecretScanningAlert(getClient, t)),
 			toolsets.NewServerTool(ListSecretScanningAlerts(getClient, t)),
 		)
+	projects := toolsets.NewToolset("projects", "GitHub Projects (V2): project creation, item addition, field updates").
+		AddReadTools(
+			toolsets.NewServerTool(ListOrganizationProjectsTool(getGraphQLClient, t)),
+			toolsets.NewServerTool(ListUserProjectsTool(getGraphQLClient, t)),
+			toolsets.NewServerTool(GetProjectTool(getGraphQLClient, t)),
+			toolsets.NewServerTool(GetProjectItemsTool(getGraphQLClient, t)),
+		).
+		AddWriteTools(
+			toolsets.NewServerTool(CreateProjectTool(getGraphQLClient, t)),
+			toolsets.NewServerTool(AddProjectItemTool(getGraphQLClient, t)),
+			toolsets.NewServerTool(UpdateProjectItemFieldTool(getGraphQLClient, t)),
+		)
 	// Keep experiments alive so the system doesn't error out when it's always enabled
 	experiments := toolsets.NewToolset("experiments", "Experimental features that are not considered stable yet")
 
@@ -88,6 +104,7 @@ func InitToolsets(passedToolsets []string, readOnly bool, getClient GetClientFn,
 	tsg.AddToolset(pullRequests)
 	tsg.AddToolset(codeSecurity)
 	tsg.AddToolset(secretProtection)
+	tsg.AddToolset(projects)
 	tsg.AddToolset(experiments)
 	// Enable the requested features
 
