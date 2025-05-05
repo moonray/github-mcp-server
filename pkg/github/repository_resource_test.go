@@ -172,6 +172,10 @@ func Test_repositoryResourceContentsHandler(t *testing.T) {
 					mock.GetReposContentsByOwnerByRepoByPath,
 					mockDirContent,
 				),
+				mock.WithRequestMatch(
+					mock.GetReposContentsByOwnerByRepoByPath,
+					mockDirContent,
+				),
 			),
 			requestArgs: map[string]any{
 				"owner": []string{"owner"},
@@ -183,6 +187,9 @@ func Test_repositoryResourceContentsHandler(t *testing.T) {
 		{
 			name: "no data",
 			mockedClient: mock.NewMockedHTTPClient(
+				mock.WithRequestMatch(
+					mock.GetReposContentsByOwnerByRepoByPath,
+				),
 				mock.WithRequestMatch(
 					mock.GetReposContentsByOwnerByRepoByPath,
 				),
@@ -198,6 +205,10 @@ func Test_repositoryResourceContentsHandler(t *testing.T) {
 		{
 			name: "empty data",
 			mockedClient: mock.NewMockedHTTPClient(
+				mock.WithRequestMatch(
+					mock.GetReposContentsByOwnerByRepoByPath,
+					[]*github.RepositoryContent{},
+				),
 				mock.WithRequestMatch(
 					mock.GetReposContentsByOwnerByRepoByPath,
 					[]*github.RepositoryContent{},

@@ -354,6 +354,8 @@ func GetProjectItems(ctx context.Context, in *GetProjectItemsInput, client *ghv4
 
 // CreateProject creates a new project using the provided githubv4.Client.
 // If client is nil, a default client is created using GITHUB_TOKEN from environment.
+// CreateProject creates a new project using the provided githubv4.Client.
+// Resolves the owner (organization or user) to a GraphQL ID and uses it in the mutation input.
 func CreateProject(ctx context.Context, in *CreateProjectInput, client *ghv4.Client) (*Project, error) {
 	if in.Owner == "" || in.Title == "" {
 		return nil, errors.New("owner and title are required")
@@ -367,22 +369,10 @@ func CreateProject(ctx context.Context, in *CreateProjectInput, client *ghv4.Cli
 		client = ghv4.NewClient(&http.Client{Transport: &authTransport{token: token}})
 	}
 
-	// Lookup owner ID (org or user)
-	var ownerQ struct {
-		Organization *struct{ ID ghv4.ID } `graphql:"organization(login: $login)"`
-		User         *struct{ ID ghv4.ID } `graphql:"user(login: $login)"`
-	}
-	ownerVars := map[string]interface{}{"login": ghv4.String(in.Owner)}
-	if err := client.Query(ctx, &ownerQ, ownerVars); err != nil {
-		return nil, fmt.Errorf("owner lookup failed: %w", err)
-	}
-	var ownerID ghv4.ID
-	if ownerQ.Organization != nil {
-		ownerID = ownerQ.Organization.ID
-	} else if ownerQ.User != nil {
-		ownerID = ownerQ.User.ID
-	} else {
-		return nil, errors.New("owner not found")
+	// Always resolve the owner to a GraphQL ID (works for both orgs and users)
+	ownerID, err := resolveOwnerID(ctx, client, in.Owner)
+	if err != nil {
+		return nil, err
 	}
 
 	type createProjectInput struct {

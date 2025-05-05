@@ -243,6 +243,140 @@ func TestGetProjectItems(t *testing.T) {
 	}
 }
 
+func TestOwnerResolutionInCreateProject(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       *CreateProjectInput
+		mockHandler http.HandlerFunc
+		wantErr     bool
+		wantID      string
+		wantErrMsg  string
+	}{
+		{
+			name:  "owner is organization",
+			input: &CreateProjectInput{Owner: "org-login", Title: "Project for Org"},
+			mockHandler: func(w http.ResponseWriter, r *http.Request) {
+				var buf bytes.Buffer
+				_, _ = buf.ReadFrom(r.Body)
+				body := buf.String()
+				if strings.Contains(body, "organization") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"organization":{"id":"org123"}}}`))
+				} else if strings.Contains(body, "createProjectV2") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"createProjectV2":{"projectV2":{"id":"projOrg","title":"Project for Org","number":1,"url":"http://example.com/orgproject"}}}}`))
+				} else {
+					w.WriteHeader(400)
+					w.Write([]byte(`{"error":"unexpected request"}`))
+				}
+			},
+			wantErr: false,
+			wantID:  "projOrg",
+		},
+		{
+			name:  "owner is user",
+			input: &CreateProjectInput{Owner: "user-login", Title: "Project for User"},
+			mockHandler: func(w http.ResponseWriter, r *http.Request) {
+				var buf bytes.Buffer
+				_, _ = buf.ReadFrom(r.Body)
+				body := buf.String()
+				if strings.Contains(body, "organization") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"organization":null}}`)) // Not an org
+				} else if strings.Contains(body, "user") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"user":{"id":"user123"}}}`))
+				} else if strings.Contains(body, "createProjectV2") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"createProjectV2":{"projectV2":{"id":"projUser","title":"Project for User","number":2,"url":"http://example.com/userproject"}}}}`))
+				} else {
+					w.WriteHeader(400)
+					w.Write([]byte(`{"error":"unexpected request"}`))
+				}
+			},
+			wantErr: false,
+			wantID:  "projUser",
+		},
+		{
+			name:  "owner is neither user nor org",
+			input: &CreateProjectInput{Owner: "ghost-login", Title: "Project for Ghost"},
+			mockHandler: func(w http.ResponseWriter, r *http.Request) {
+				var buf bytes.Buffer
+				_, _ = buf.ReadFrom(r.Body)
+				body := buf.String()
+				if strings.Contains(body, "organization") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"organization":null}}`))
+				} else if strings.Contains(body, "user") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"user":null}}`))
+				} else {
+					w.WriteHeader(400)
+					w.Write([]byte(`{"error":"unexpected request"}`))
+				}
+			},
+			wantErr:    true,
+			wantErrMsg: "owner not found",
+		},
+		{
+			name:  "owner ambiguous (org and user both exist)",
+			input: &CreateProjectInput{Owner: "ambiguous-login", Title: "Ambiguous Project"},
+			mockHandler: func(w http.ResponseWriter, r *http.Request) {
+				var buf bytes.Buffer
+				_, _ = buf.ReadFrom(r.Body)
+				body := buf.String()
+				if strings.Contains(body, "organization") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"organization":{"id":"orgAmbig"}}}`))
+				} else if strings.Contains(body, "user") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"user":{"id":"userAmbig"}}}`))
+				} else if strings.Contains(body, "createProjectV2") {
+					w.WriteHeader(200)
+					w.Write([]byte(`{"data":{"createProjectV2":{"projectV2":{"id":"projAmbig","title":"Ambiguous Project","number":3,"url":"http://example.com/ambigproject"}}}}`))
+				} else {
+					w.WriteHeader(400)
+					w.Write([]byte(`{"error":"unexpected request"}`))
+				}
+			},
+			wantErr: false, // Should prefer org or document behavior
+			wantID:  "projAmbig",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var server *httptest.Server
+			if tc.mockHandler != nil {
+				server = httptest.NewServer(tc.mockHandler)
+				defer server.Close()
+			}
+			httpClient := &http.Client{}
+			if server != nil {
+				httpClient = server.Client()
+			}
+			var ghClient *githubv4.Client
+			if server != nil {
+				ghClient = githubv4.NewEnterpriseClient(server.URL, httpClient)
+			} else {
+				ghClient = githubv4.NewClient(httpClient)
+			}
+			out, err := CreateProject(context.Background(), tc.input, ghClient)
+			if tc.wantErr {
+				assert.Error(t, err)
+				if tc.wantErrMsg != "" {
+					assert.Contains(t, err.Error(), tc.wantErrMsg)
+				}
+				assert.Nil(t, out)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, out)
+				assert.Equal(t, tc.wantID, out.ID)
+			}
+		})
+	}
+}
+
 func TestCreateProject(t *testing.T) {
 	tests := []struct {
 		name        string

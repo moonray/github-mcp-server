@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/github/github-mcp-server/pkg/translations"
@@ -29,8 +30,12 @@ func ListOrganizationProjectsTool(getClient GetGraphQLClientFn, t translations.T
 		}
 		first, _ := requiredParam[float64](req, "first") // optional
 		after, _ := requiredParam[string](req, "after") // optional
+		ownerID, err := resolveOwnerID(ctx, client, organization)
+		if err != nil {
+			return nil, err
+		}
 		input := &ListOrganizationProjectsInput{
-			Organization: organization,
+			Organization: fmt.Sprint(ownerID),
 			First:        int(first),
 			After:        after,
 		}
@@ -65,8 +70,12 @@ func ListUserProjectsTool(getClient GetGraphQLClientFn, t translations.Translati
 		}
 		first, _ := requiredParam[float64](req, "first") // optional
 		after, _ := requiredParam[string](req, "after") // optional
+		userID, err := resolveOwnerID(ctx, client, user)
+		if err != nil {
+			return nil, err
+		}
 		input := &ListUserProjectsInput{
-			User:  user,
+			User:  fmt.Sprint(userID),
 			First: int(first),
 			After: after,
 		}
@@ -102,6 +111,7 @@ func GetProjectTool(getClient GetGraphQLClientFn, t translations.TranslationHelp
 		if err != nil {
 			return nil, err
 		}
+		// Pass the login string for queries; resolveOwnerID is only needed for mutations.
 		input := &GetProjectInput{
 			Owner:  owner,
 			Number: int(number),
